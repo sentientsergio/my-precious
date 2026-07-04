@@ -77,14 +77,14 @@ The compiler emits against this table, and `check.mjs` enforces the mechanical r
 | 7 | No filesystem, no Node APIs, no TypeScript syntax; `Date.now()` / `new Date()` / `Math.random()` throw (resume determinism) | All I/O in agents; time enters via envelope (`invokedAt`, `runStamp`); no randomness |
 | 8 | Caps: ~`min(16, cores−2)` concurrent agents; 1000 agents per run; 4096 items per `pipeline`/`parallel` call | Fan-outs over data-determined lists guard the counts; prompt-prescribed batching is honored as written |
 | 9 | Subagents are told their final text is a return value, not a user-facing message; they run headless; MCP tools reachable via ToolSearch, interactive-auth servers possibly absent | Stage prompts never ask an agent to "tell the user" anything; user-facing text is the `log()`ed status line |
-| 10 | Resume: `Workflow({scriptPath, resumeFromRunId})` replays the longest unchanged prefix of `agent()` calls (keyed on prompt + opts) from cache; same-session only | Boundary protocol (§6) depends on this; pre-boundary stage prompts must not interpolate later-round answer fields |
+| 10 | Resume: `Workflow({scriptPath, resumeFromRunId})` replays the longest unchanged prefix of `agent()` calls (keyed on prompt + opts) from cache; same-session only — but a run that already reached a top-level return has no unfinished prefix, so resuming it replays the cached terminal result regardless of new `args` (Probe P2, confirmed) | Boundary protocol (§6) does **not** rely on this — each boundary round is a fresh invocation instead; this row still governs genuine same-run continuation (a killed or mid-edit run) |
 | 11 | `workflow()` nests one level | Unused in v1 (§12 non-goals); `check.mjs` fails on its presence |
 | 12 | The Workflow tool requires explicit user opt-in; a skill whose instructions direct the call satisfies it | `SKILL.md` states plainly that invocation of `/my-precious` directs a `Workflow` call |
 | 13 | Workflow runs in background; the tool returns a task id; completion arrives as a task notification carrying the script's return value | The run loop launches, waits on the notification, dispatches on the result contract (§3.5) |
 | 14 | Top-level `return` ends the script; the returned value is the workflow result | The script returns only result-contract objects |
 
 **Probe P1** — the default workflow subagent's toolset includes Read/Write/Bash and web access (WebSearch/WebFetch). Everything in the runtime docs implies it (migration workflows edit files; research workflows search). Fallback if wrong: set `agentType` to a full-tool agent in emitted `opts`.
-**Probe P2** — resume caching holds when a re-invocation adds envelope fields that only post-boundary prompts interpolate. The prefix property should hold by construction. Fallback: re-run from scratch on each boundary round (correct, slower; same-day run dirs make it idempotent for the specimen, wasteful in general).
+**Probe P2 — FALLBACK TRIGGERED (confirmed; see probes.md).** Resume does not re-evaluate a completed run's control flow: once a script reaches any top-level `return` (including `needs_user`), `Workflow({scriptPath, resumeFromRunId, args})` replays that exact cached result regardless of new `args` values, and regardless of an incidental non-agent-call script edit — verified against three independent runs, one with an actual script edit, all reproducing the byte-identical cached result at 0 tokens. The tool's resume mechanism serves interrupted or incomplete runs (kill, crash, mid-flight script edit), not "return `needs_user`, then progress past it with new input." **Adopted fallback:** each boundary round is a fresh invocation from scratch (no `resumeFromRunId`), carrying the accumulated `answers` in `args`; pre-boundary stages redo their real work every round. Correct but costly; same-day run dirs make it idempotent for the specimen, wasteful in general for prompts with many pre-boundary stages or many interaction rounds.
 **Probe P3** — workflow agents cannot ask the user questions. Assumed true (headless, background). Boundaries are the design regardless — even if some path existed, a background agent blocking on user input is the wrong interaction surface.
 **Probe P4** — the completion notification exposes the return object (directly or via TaskOutput). Fallback: the artifact also has the final coordinator agent write `<run-dir>/result.json`, and the run loop reads that.
 **Probe P5** — the runtime's meta parser tolerates quoted keys and the `/*@meta*/…/*@end*/` sentinel comments around the literal. Fallback: sentinels on their own lines, unquoted keys, and a balanced-brace extractor in `check.mjs` in place of raw `JSON.parse`.
@@ -286,17 +286,17 @@ Three notes. (8) exists because the *script* can't transform content (D2) — so
 
 The hardest impedance mismatch: prompts prescribe mid-pipeline user interaction (the specimen's `AskQuestion` steps); the runtime runs headless in the background (P3).
 
-**Decision D6 — boundaries pause the workflow via the result contract; the session main loop mediates; resume re-enters.**
+**Decision D6 — boundaries pause the workflow via the result contract; the session main loop mediates; each round relaunches from scratch.**
 
 Mechanics:
 
 1. The stage that generates questions is a normal agent whose schema returns `{questions: […]}` shaped per §3.5 — a direct mirror of the `AskUserQuestion` tool so the run loop is a dumb adapter.
 2. The script checks `answers["<boundaryId>"]`. Absent → `return {status:"needs_user", boundary, questions, partial}`. Present → interpolate the answers into the continuation and proceed.
-3. The run loop asks the user — via `AskUserQuestion` when options are supplied, in plain chat when open-ended — merges the result into `envelope.answers[boundaryId]`, and re-invokes `Workflow({scriptPath, resumeFromRunId, args})`. Completed pre-boundary `agent()` calls replay from the journal cache (ABI 10); the boundary stage onward runs live.
-4. **Interpolation discipline:** a stage prompt may interpolate only answers from boundaries that precede it in the graph. This keeps every pre-boundary prompt byte-identical across rounds, which is what makes the cache prefix hold (P2).
-5. **Multi-round loops** (the specimen's Step 8: *"one or two at a time. Each answer may change the next question"*): the asking stage receives all prior rounds' Q&A, returns either the next questions or a done-signal; each round is its own boundary id (`questions.r1`, `questions.r2`, …). The run loop caps rounds (default 8); past the cap it resumes with `{exhausted: true}` and says so in the final report.
-6. **Silence:** if the user declines or skips, the run loop resumes with `{skipped: true}` — the quoted rules govern what stages do with silence (the specimen: *"Ask once. Accept silence."*).
-7. Resume is same-session (ABI 10). A boundary reached when resume is unavailable (fresh session rerun) restarts the run from scratch on the next invocation — correct, and for date-scoped run dirs like the specimen's, idempotent; the cost is honest in the run report.
+3. The run loop asks the user — via `AskUserQuestion` when options are supplied, in plain chat when open-ended — merges the result into `envelope.answers[boundaryId]`, and re-invokes `Workflow({scriptPath, args})` **as a fresh run, without `resumeFromRunId`**. Probe P2 (§2) found that resuming a run which already reached a top-level return (including `needs_user`) replays its cached terminal result regardless of new `args`, so resume cannot progress a boundary. Every pre-boundary stage redoes its real work each round; this is the accepted cost (§13).
+4. **Interpolation discipline:** a stage prompt may interpolate only answers from boundaries that precede it in the graph — later answers don't exist yet at that point in the run. (This no longer buys a resume cache prefix — P2 found none survives a boundary round — but the ordering constraint holds regardless.)
+5. **Multi-round loops** (the specimen's Step 8: *"one or two at a time. Each answer may change the next question"*): the asking stage receives all prior rounds' Q&A, returns either the next questions or a done-signal; each round is its own boundary id (`questions.r1`, `questions.r2`, …). The run loop caps rounds (default 8); past the cap it relaunches with `{exhausted: true}` and says so in the final report.
+6. **Silence:** if the user declines or skips, the run loop relaunches with `{skipped: true}` — the quoted rules govern what stages do with silence (the specimen: *"Ask once. Accept silence."*).
+7. Since boundary progress never depends on `resumeFromRunId` (point 3), session continuity doesn't gate it the way ABI row 10 would suggest for a true resume — a fresh `Workflow({scriptPath, args})` call works identically whether the answering turn lands in the same session or a later one, as long as the run loop still holds the accumulated envelope.
 
 Boundaries are also the answer to a define-phase subtlety: the README promises a *re-runnable* artifact, and interactive steps are the one thing a background artifact cannot contain. The boundary protocol keeps the artifact self-contained while placing interaction exactly where an interactive surface exists.
 
@@ -378,12 +378,12 @@ await task notification → result:
   failed     → surface as defect with stage + reason; done
   needs_user → ask (AskUserQuestion when options given, chat otherwise);
                envelope.answers[result.boundary] = answers (or {skipped:true});
-               relaunch Workflow({scriptPath, resumeFromRunId: runId, args: envelope});
-               runId = the relaunch's id   // each round resumes from the immediately
-               loop (round cap 8 → resume with {exhausted:true})   // preceding run, not the origin
+               relaunch Workflow({scriptPath, args: envelope})   // fresh run, no resumeFromRunId —
+               loop (round cap 8 → relaunch with {exhausted:true})  // P2 (§2): resume replays a completed
+                                                                     // run's cached result, not live progress
 ```
 
-Chat-mediated boundary questions end the assistant turn; the envelope and the latest `runId` are conversation state, so the loop continues whenever the user answers — resume stays valid for the life of the session (ABI 10), and a session that ends mid-boundary means a fresh run next invocation (§6.7).
+Chat-mediated boundary questions end the assistant turn; the envelope is conversation state, so the loop continues whenever the user answers — each round relaunches the workflow from scratch with the accumulated envelope (§6 D6, P2), so unlike a true resume this never depends on session continuity for the mechanism itself, only on the run loop still holding the envelope so far.
 
 While the workflow runs, `log()` lines stream as progress — these are the stage-authored status lines (catalog row 12), so prompts that style their own progress reporting (the specimen's persona rules) style the live feed too, with no compiler involvement.
 
@@ -475,7 +475,7 @@ Acceptance criteria (the define phase's promises, testable):
 - A2 Touch prompt.md or bump VERSION → recompile.
 - A3 Emitted artifact passes all F1 gates; every `S` value byte-verified.
 - A4 smoke.md runs end-to-end; artifact rerun against a *different* context reuses the same `.js` untouched (one binary, many contexts).
-- A5 Boundary pause/resume works within a session.
+- A5 Boundary pause/relaunch round-trip works, regardless of whether the answering turn lands in the same session or a later one (§6 D6, P2).
 - A6 staker.md compiles with zero membrane violations and the §11 shape.
 - A7 Compile-only mode reports diagnostics without running; artifact contains none of them.
 
@@ -489,4 +489,4 @@ Acceptance criteria (the define phase's promises, testable):
 - **Compile variance** — two compiles of one prompt may differ. Contained by the fixed artifact anatomy, the gates, and the coverage matrix; variance that survives all three is cosmetic.
 - **Fan-out runaway** — data-determined item lists at run time. Contained by cap guards (ABI 8) and MP-W07.
 - **Permission friction** — background agents doing web/file work under restrictive permission modes will stall. Operational, not architectural: `SKILL.md` notes the modes a run needs; the artifact fails honestly if denied.
-- **Boundary cost without resume** — fresh-session boundary hits restart the run (§6.7). Accepted for v1; the run report says what happened.
+- **Boundary cost, always** — Probe P2 (§2) found no working resume path across a boundary; every round relaunches the full run from scratch regardless of session (§6 D6, §9.2). Accepted for v1 — costly for prompts with many pre-boundary stages or many interaction rounds (e.g. the specimen's Step 8, up to 8 rounds each re-running Steps 1-7); the run report says what happened.
