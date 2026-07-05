@@ -4,7 +4,15 @@
 
 # my-precious
 
-**`my-precious` compiles a prompt into a re-runnable workflow.** You write a prompt; it emits the workflow JavaScript that executes it, on Claude Code's runtime; you run that same artifact against context after context.
+**`my-precious` compiles a prompt into a re-runnable workflow — so the words you engineered arrive exactly as you engineered them.**
+
+When an LLM orchestrates subagents, it *authors* their prompts: it paraphrases your instructions, condenses them, quietly embellishes — differently every run. Invisible for a casual prompt. For one whose value lives in precise, hard-won wording, it is death by a thousand quiet edits — a rule marked HARD silently dropped, an answer leaked into the very step meant to find it. There is a lossy compressor between what you wrote and what runs, and it has been told to rewrite.
+
+`my-precious` takes it out. You write a prompt; it compiles into a workflow where **every stage receives its instructions byte-for-byte**, and the orchestration is deterministic code — which cannot paraphrase, because comprehension *was* the corruption vector.
+
+> **The prompt is authoritative over everything it states. The compiler owns only the silences.**
+
+You author markdown; it emits the JavaScript that runs that prompt on Claude Code's runtime; you run the same artifact against context after context — and anyone, invested or not, can lay the output beside the source and check it, byte for byte.
 
 ### Usage
 `/my-precious <prompt.md> <context>`
