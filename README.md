@@ -12,7 +12,7 @@ When an LLM orchestrates subagents, it *authors* their prompts: it paraphrases y
 
 > **The prompt is authoritative over everything it states. The compiler owns only the silences.**
 
-You author markdown; it emits the JavaScript that runs that prompt on Claude Code's runtime; you run the same artifact against context after context — and anyone, invested or not, can lay the output beside the source and check it, byte for byte.
+You author markdown; `my-precious` compiles it (no hand-written JavaScript, ever). Two assumptions, both Claude Code's own: it installs and runs as a **skill** — `/my-precious <prompt.md> <context>` — and it compiles to **Claude Code's dynamic Workflows**, the runtime where a deterministic JavaScript orchestrator can drive a swarm of subagents. You run the same artifact against context after context, and anyone, invested or not, can lay its output beside the source and check it, byte for byte.
 
 ### Usage
 `/my-precious <prompt.md> <context>`
