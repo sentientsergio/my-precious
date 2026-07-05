@@ -24,6 +24,10 @@ _The longer argument — the paraphrase corruption in full, and the compiler tha
 - **The workflow `.js` is the compiled artifact** — a first-order deliverable that runs on Claude Code's existing dynamic-workflow runtime. `my-precious` never builds a runtime; it emits code for the one already here.
 - **`<context>` is runtime input.** One binary, many contexts. Context never touches compilation.
 
+<p align="center">
+  <img src="assets/magritte.jpg" alt="Ceci n'est pas une workflow" width="560">
+</p>
+
 ### The compile
 Recover the workflow latent in the prompt — honor whatever it prescribes, synthesize the rest — and emit the workflow that executes it.
 
