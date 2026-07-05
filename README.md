@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/smeagol.png" alt="my precious" width="680">
+</p>
+
 # my-precious
 
 **`my-precious` compiles a prompt into a re-runnable workflow.** You write a prompt; it emits the workflow JavaScript that executes it, on Claude Code's runtime; you run that same artifact against context after context.
