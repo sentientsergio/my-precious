@@ -1,8 +1,8 @@
 // my-precious artifact — regenerable; do not hand-edit. Edit the source prompt and re-invoke /my-precious.
 // source: smoke.md
-// my-precious-version: 0.1.0
+// my-precious-version: 0.1.1
 // compiled-by: claude-sonnet-5
-// hash: mp1:e560c17bf1c706a7be1940bf635ad9a9b1123b3a64b281636bf625b592b52585
+// hash: mp1:f270a132382ab140c2f601532b6d54a18c37e94382ba004e86cf4afb9d7520f2
 export const meta = /*@meta*/{
   "name": "smoke",
   "description": "Write short, fact-checked \"did you know\" briefs for a handful of topics, plus a summary index.",
@@ -24,7 +24,6 @@ const P = {
   embed:  (label, path) => `Read ${path} and treat its full contents as the ${label} block your quoted instructions prescribe, at the position they prescribe.`,
 };
 const STATUS = { type: "object", properties: { status: { type: "string" } }, required: ["status"] };
-// ...plus any per-stage schema extension you need, control-plane fields only.
 
 const FRAME_SCHEMA = {
   type: "object",
@@ -36,7 +35,7 @@ const FRAME_SCHEMA = {
   required: ["topics", "sufficient", "reason"]
 };
 
-const WORK_SCHEMA = {
+const BRIEF_SCHEMA = {
   type: "object",
   properties: {
     ...STATUS.properties,
@@ -68,7 +67,8 @@ const SYNTH_SCHEMA = {
 };
 
 phase("Frame");
-const { context, invokedAt, runStamp, cwd, answers = {} } = args ?? {};
+const _args = typeof args === "string" ? JSON.parse(args) : (args ?? {});
+const { context, invokedAt, runStamp, cwd, answers = {} } = _args;
 if (!context) return { status: "failed", stage: "envelope", reason: "missing args.context" };
 
 const frameResult = await agent(
@@ -97,7 +97,7 @@ if (topics.length > 4096) {
 phase("Write Briefs");
 const outDir = `${cwd}/my-precious-runs/${runStamp}`;
 
-const workThunks = topics.map((topic) => async () => {
+const briefThunks = topics.map((topic) => async () => {
   const outPath = `${outDir}/${topic}.md`;
   return await agent(
     [
@@ -107,23 +107,23 @@ const workThunks = topics.map((topic) => async () => {
       P.out(outPath),
       P.ret()
     ].join("\n\n"),
-    { schema: WORK_SCHEMA, phase: "Write Briefs" }
+    { schema: BRIEF_SCHEMA, phase: "Write Briefs" }
   );
 });
 
-const workResultsRaw = await parallel(workThunks);
-const workResults = workResultsRaw.filter(Boolean);
-const droppedWork = workResultsRaw.length - workResults.length;
-if (droppedWork > 0) {
-  log(`write-briefs: dropped ${droppedWork} null result(s)`);
+const briefResultsRaw = await parallel(briefThunks);
+const briefResults = briefResultsRaw.filter(Boolean);
+const droppedBriefs = briefResultsRaw.length - briefResults.length;
+if (droppedBriefs > 0) {
+  log(`write-briefs: dropped ${droppedBriefs} null result(s)`);
 }
-if (workResults.length === 0) {
+if (briefResults.length === 0) {
   return { status: "failed", stage: "work", reason: "all brief writers failed" };
 }
 
 phase("Verify Facts");
 
-const verifyThunks = workResults.map((item) => async () => {
+const verifyThunks = briefResults.map((item) => async () => {
   return await agent(
     [
       P.role("fact verifier"),

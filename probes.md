@@ -50,6 +50,16 @@ Once a script reaches any top-level `return` (a completed run, `needs_user` incl
 
 **Evidence:** run `wf_06f40be6-a02` (task `wb85vaagh`), script's `meta` written exactly as `export const meta = /*@meta*/{"name": "probe-p5", ...}/*@end*/` with quoted keys throughout. Ran to completion in 3ms with the expected report string (`"p5 meta shape accepted: quoted keys + adjacent sentinels parsed fine"`). No fallback needed.
 
+## P6 — args delivery shape
+
+**Question:** in what shape does the runtime deliver the `args` global to a script — the object passed to `Workflow({scriptPath, args})`, or something else?
+
+**Verdict:** the runtime delivers `args` as a JSON **string**, not a parsed object.
+
+**Evidence:** an inline probe workflow invoked with `Workflow({scriptPath, args: {"context":"probe-hello", ...}})` read back `typeof args === "string"`, with the value equal to the raw JSON text of the object passed in — not a live object. Consequently the compiled smoke artifact's envelope line (`const { context } = args ?? {}`) destructured a string, `context` came back `undefined`, and the artifact returned `{"status":"failed","stage":"envelope","reason":"missing args.context"}` on every run — reproduced on two independent smoke runs, `wf_2887c79c-e28` and `wf_e9ccad26-154`, both failing identically at the envelope guard. This is a real gap: none of P1-P5 checked the shape `args` actually arrives in, only that it "arrives verbatim" (design §2 row 6) — true of its *content*, silent on its *type*.
+
+**Fallback adopted:** every artifact parses the envelope defensively before destructuring — `const _args = typeof args === "string" ? JSON.parse(args) : (args ?? {});` — and reads all envelope fields from `_args`, never `args` directly. See `SKILL.md`'s compiler-agent brief (Envelope section) for the emission rule, and design.md §3.4 / §13 for the corresponding notes.
+
 ## Summary
 
 | Probe | Verdict | §2 edited? |
@@ -59,5 +69,6 @@ Once a script reaches any top-level `return` (a completed run, `needs_user` incl
 | P3 | confirmed | untouched |
 | P4 | confirmed | untouched |
 | P5 | confirmed | untouched |
+| P6 | fallback-triggered | not edited (this errata is scoped to SKILL.md/probes.md/design §3.4+§13 — see build brief) |
 
 **Downstream note (not part of this errata):** build.md's WP4 done-when criterion names `resumeFromRunId` explicitly as the mechanism to exercise for the boundary round-trip. That wording is now stale against the corrected §6/§9.2 and should be read as "the boundary protocol" (fresh relaunch carrying accumulated answers, not a literal `resumeFromRunId` call) when WP4 is reached. Flagged for the principal rather than silently edited — build.md is outside this errata's scope (ground rule 2 covers design.md's §2 rows, nothing more). Also worth the principal's attention: the adopted fallback makes every multi-round interaction loop (e.g. the specimen's Step 8, up to 8 rounds) re-run all its pre-boundary stages from scratch on each round — for the staker this means re-running Steps 1-7 up to 8 times over, a real cost the original design did not price in.

@@ -1,7 +1,7 @@
 ---
 name: my-precious
 description: Compile a prompt.md into a re-runnable workflow.js artifact that executes on Claude Code's dynamic-workflow runtime (the Workflow tool), then run that artifact against a context. Triggered by "/my-precious <prompt.md> [<context>]".
-version: 0.1.0
+version: 0.1.1
 ---
 
 # my-precious
@@ -220,7 +220,8 @@ compiler agent never reads `design.md`; everything it needs is below.
 > const STATUS = { type: "object", properties: { status: { type: "string" } }, required: ["status"] };
 >
 > phase("<title>");
-> const { context, invokedAt, runStamp, cwd, answers = {} } = args ?? {};
+> const _args = typeof args === "string" ? JSON.parse(args) : (args ?? {});
+> const { context, invokedAt, runStamp, cwd, answers = {} } = _args;
 > if (!context) return { status: "failed", stage: "envelope", reason: "missing args.context" };
 >
 > return { status: "complete", output: "<path>", artifacts: ["<paths>"], report: "<one paragraph>" };
@@ -276,6 +277,16 @@ compiler agent never reads `design.md`; everything it needs is below.
 > | `runStamp` | `YYYYMMDD-HHmmss` | Filename-safe; default run-dir naming |
 > | `cwd` | string | Invocation directory, informational |
 > | `answers` | object | `{<boundaryId>: <answer>}`, accumulated across interaction rounds |
+>
+> **Parse the envelope defensively — every artifact, no exceptions.** The
+> runtime delivers `args` as a JSON string, not a parsed object (confirmed at
+> runtime; probes.md P6). The very first line after `phase(...)` in your
+> emitted script must be
+> `const _args = typeof args === "string" ? JSON.parse(args) : (args ?? {});`,
+> and the envelope destructure (and every other envelope read) comes from
+> `_args`, never from `args` directly. Skipping this makes the envelope guard
+> fail on every run — `args` destructures to `undefined` fields, not a
+> missing-context error you could debug from the report.
 >
 > You never read or interpret `context` yourself while compiling — it isn't
 > available to you, by design, and it doesn't need to be. You are compiling

@@ -150,9 +150,12 @@ const P = {
 ### 3.4 Envelope
 
 ```js
-const { context, invokedAt, runStamp, cwd, answers = {} } = args ?? {};
+const _args = typeof args === "string" ? JSON.parse(args) : (args ?? {});
+const { context, invokedAt, runStamp, cwd, answers = {} } = _args;
 if (!context) return { status: "failed", stage: "envelope", reason: "missing args.context" };
 ```
+
+**Note (Probe P6, post-WP2):** the runtime delivers `args` to the script as a JSON string, not a parsed object — every artifact must parse it defensively (as shown) before destructuring; see probes.md P6.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -490,3 +493,4 @@ Acceptance criteria (the define phase's promises, testable):
 - **Fan-out runaway** — data-determined item lists at run time. Contained by cap guards (ABI 8) and MP-W07.
 - **Permission friction** — background agents doing web/file work under restrictive permission modes will stall. Operational, not architectural: `SKILL.md` notes the modes a run needs; the artifact fails honestly if denied.
 - **Boundary cost, always** — Probe P2 (§2) found no working resume path across a boundary; every round relaunches the full run from scratch regardless of session (§6 D6, §9.2). Accepted for v1 — costly for prompts with many pre-boundary stages or many interaction rounds (e.g. the specimen's Step 8, up to 8 rounds each re-running Steps 1-7); the run report says what happened.
+- **Envelope delivery shape** — Probe P6 (post-WP2) found the runtime delivers `args` as a JSON string, not a live object, contrary to the ABI-6 "`args` arrives verbatim" framing's implicit assumption of shape. Contained by mandatory defensive parsing (`typeof args === "string" ? JSON.parse(args) : (args ?? {})`) in every emitted artifact (§3.4; SKILL.md compiler brief) — a compile-time discipline, not a runtime fix.
